@@ -22,7 +22,7 @@ import java.util.stream.Collectors;
 public class OrderService {
 
     private final OrderRepository orderRepository;
-    private final WebClient webClient;
+    private final WebClient.Builder webClientBuilder;
 
     public void createOrder(OrderRequest orderRequest) {
         Order order = Order.builder()
@@ -38,9 +38,10 @@ public class OrderService {
                 .collect(Collectors.toList());
 
         // call external micro-service
-        InventoryResponse[] inventoryResponseArray = webClient.get()
+        InventoryResponse[] inventoryResponseArray = webClientBuilder.build().get()
+                //! replace hardcode ip to service name inventory-service
                 .uri(
-                        "http://localhost:8083/api/inventory",
+                        "http://inventory-service/api/inventory",
                         uriBuilder -> uriBuilder.queryParam("skuCode", skuCodes).build())
                 .retrieve()
                 .bodyToMono(InventoryResponse[].class)

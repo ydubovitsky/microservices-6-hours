@@ -3,12 +3,16 @@ package ru.ydubovitsky.orderservice.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.WebClient;
+import ru.ydubovitsky.orderservice.dto.InventoryResponse;
 import ru.ydubovitsky.orderservice.dto.OrderItemDto;
 import ru.ydubovitsky.orderservice.dto.OrderRequest;
 import ru.ydubovitsky.orderservice.model.Order;
 import ru.ydubovitsky.orderservice.model.OrderItem;
 import ru.ydubovitsky.orderservice.repository.OrderRepository;
 
+import java.util.Arrays;
+import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -18,6 +22,7 @@ import java.util.stream.Collectors;
 public class OrderService {
 
     private final OrderRepository orderRepository;
+    private final WebClient webClient;
 
     public void createOrder(OrderRequest orderRequest) {
         Order order = Order.builder()
@@ -27,8 +32,31 @@ public class OrderService {
                         .map(reqItem -> orderItemDtoToOrderItem(reqItem))
                         .collect(Collectors.toList()))
                 .build();
-        Order savedOrder = orderRepository.save(order);
-        log.info("Order {} saved", savedOrder.getId());
+
+        List<String> skuCodes = order.getOrderItems().stream()
+                .map(item -> item.getSkuCode())
+                .collect(Collectors.toList());
+
+        // call external micro-service
+        InventoryResponse[] inventoryResponseArray = webClient.get()
+                .uri(
+                        "http://localhost:8083/api/inventory",
+                        uriBuilder -> uriBuilder.queryParam("skuCode", skuCodes).build())
+                .retrieve()
+                .bodyToMono(InventoryResponse[].class)
+                .block();
+
+        boolean isAllInStock = Arrays.asList(inventoryResponseArray)
+                .stream()
+                .allMatch(inventoryResponse -> inventoryResponse.getIsInStock());
+
+        if (isAllInStock) {
+            Order savedOrder = orderRepository.save(order);
+            log.info("Order {} saved", savedOrder.getId());
+        } else {
+            throw new IllegalArgumentException("There is no order isInStock");
+        }
+
     }
 
     private OrderItem orderItemDtoToOrderItem(OrderItemDto orderItemDto) {
